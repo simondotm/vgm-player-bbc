@@ -59,15 +59,13 @@ INCLUDE "lib/irq.asm"
 }
 
 ORG &3000
-INCBIN "music/vgm_out/LETHAL7.bin.exo"
-;INCBIN "music/vgm_out/Chris Kelly - SMS Power 15th Anniversary Competitions - Collision Chaos.bin.exo"
+INCBIN "music/vgm_out/Chris Kelly - SMS Power 15th Anniversary Competitions - Collision Chaos.bin.exo"
 .end
 
 SAVE "Main", start, end, main
 
 
 PUTFILE "music/vgm_out/BotB 16433 Slimeball - Fluid Dynamics.bin.exo", "V.FLUID", &3000, &3000
-PUTFILE "music/vgm_out/LETHAL7.bin.exo", "V.LETHAL", &3000, &3000
 PUTFILE "music/vgm_out/ne7-magic_beansmaster_system_psg.bin.exo", "V.MAGIC", &3000, &3000
 PUTFILE "music/vgm_out/Chris Kelly - SMS Power 15th Anniversary Competitions - Collision Chaos.bin.exo", "V.CHAOS", &3000, &3000
 

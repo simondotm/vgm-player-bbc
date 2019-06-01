@@ -10,7 +10,7 @@
     ],
     "tasks": [
         {
-            "taskName": "vgmplay.ssd",
+            "taskName": "vgm_demo.ssd",
             "problemMatcher": {
                 "owner": "6502",
                 "fileLocation": [
@@ -26,16 +26,36 @@
                 }
             },
             "args": [
-                "BeebAsm.exe -v -i vgmplay.asm -do vgmplay.ssd -boot Main"
-            ],
-            "isBuildCommand": true
+                "BeebAsm.exe -v -i vgm_demo.asm -do vgm_demo.ssd -boot Main"
+            ]
         },
         {
-            "taskName": "Run 'vgmplay.ssd' in Emulator",
+            "taskName": "Run 'vgc_demo.ssd' in Emulator",
             "isTestCommand": true,
             "args": [
-                "B-Em.exe vgmplay.ssd"
+                "BeebEm.exe vgc_demo.ssd"
             ]
+        },
+        {
+            "taskName": "vgc_demo.ssd",
+            "problemMatcher": {
+                "owner": "6502",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceRoot}"
+                ],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "severity": 3,
+                    "message": 4
+                }
+            },
+            "args": [
+                "BeebAsm.exe -v -i vgc_demo.asm -do vgc_demo.ssd -boot Main"
+            ],
+            "isBuildCommand": true
         }
     ]
 }
