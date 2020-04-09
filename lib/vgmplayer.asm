@@ -351,7 +351,7 @@ IF VGM_ENABLE_AUDIO
 	ldy #255
 	sty $fe43
 	
-	sta $fe41
+	sta $fe4f
 	lda #0
 	sta $fe40
 	nop
