@@ -1,6 +1,7 @@
 ;******************************************************************
 ; 6502 BBC Micro Compressed VGM (VGC) Music Player
 ; By Simon Morris
+; https://github.com/simondotm/vgm-player-bbc
 ; https://github.com/simondotm/vgm-packer
 ;******************************************************************
 
@@ -621,8 +622,9 @@ lz_window_dst = lz_store_buffer + 1 ; window write ptr LO (2 bytes) - index, 3 r
     ; A/X now contain count (LO/HI)
     rts
 
-
-
+; Added code to use inverted increment counters
+; which is faster than decremented counters
+USE_FAST_COUNTER = TRUE
 
 
 ; decode a byte from the currently selected register stream
@@ -654,13 +656,40 @@ lz_window_dst = lz_store_buffer + 1 ; window write ptr LO (2 bytes) - index, 3 r
     jsr lz_store_buffer         ; [6] +6 RTS
     sta stashA+1   ; **SELF MODIFICATION**
 
+IF USE_FAST_COUNTER
+    ; using inverted counter
+    inc zp_literal_cnt+0    ; [5]
+    bne done                ; hot path [2,+1,+2] / 8
+    inc zp_literal_cnt+1    ; slow path [5]
+    .done
+    bne end_literal         ; hot path [2,+1,+2] / 10
+                            ; slow path [14]
+                            ; zero path [14]
+
+ELSE
+
     ; for all literals
-    dec zp_literal_cnt+0        ; [5 zp][6 abs]
-    bne end_literal             ; [2, +1, +2]
-    lda zp_literal_cnt+1        ; [3 zp][4 abs]
-    beq begin_matches           ; [2, +1, +2]
-    dec zp_literal_cnt+1        ; [5 zp][6 abs]
-    bne end_literal
+    lda zp_literal_cnt+0    ; [3]
+    sec                     ; [2]
+    sbc #1                  ; [2]
+    sta zp_literal_cnt+0    ; [3]
+    lda zp_literal_cnt+1    ; [3]
+    sbc #0                  ; [2]
+    sta zp_literal_cnt+1    ; [3]
+    bne end_literal         ; hot path [2,+1,+2] / 20
+    lda zp_literal_cnt+0    ; [3]
+    bne end_literal         ; slow path [2, +1, +2] / 25
+    beq begin_matches       ; end path [2, +1, +2] / 27
+
+; old bugged 16-bit decrement
+;    dec zp_literal_cnt+0        ; [5 zp][6 abs]
+;    bne end_literal             ; [2, +1, +2]
+;    lda zp_literal_cnt+1        ; [3 zp][4 abs]
+;    beq begin_matches           ; [2, +1, +2]
+;    dec zp_literal_cnt+1        ; [5 zp][6 abs]
+;    bne end_literal
+
+ENDIF
 
 .begin_matches
 
@@ -767,13 +796,26 @@ ENDIF
 
     ; if no literals, begin the match sequence
     ; and fetch one match byte
+    ; literal count can be 2 bytes, check both for zero
+    cpx #0
+    bne has_literals
     cmp #0
     bne has_literals
+
 
     jsr begin_matches
     jmp try_match
 
 .has_literals
+
+
+IF USE_FAST_COUNTER
+    ; negate the literals counter so we can increment it rather than decrement it
+    clc
+    lda zp_literal_cnt+0:eor #&ff:adc #1:sta zp_literal_cnt+0
+    lda zp_literal_cnt+1:eor #&ff:adc #0:sta zp_literal_cnt+1
+ENDIF
+
     ; ok now go back to literal parser so we can return a byte
     ; if no literals, logic will fall through to matches
     jmp try_literal
