@@ -30,10 +30,10 @@
             ]
         },
         {
-            "taskName": "Run 'vgc_demo.ssd' in Emulator",
+            "taskName": "Run 'vgc_bass_demo.ssd' in Emulator",
             "isTestCommand": true,
             "args": [
-                "BeebEm.exe vgc_demo.ssd"
+                "beebem.exe vgc_bass_demo.ssd"
             ]
         },
         {
@@ -54,8 +54,48 @@
             },
             "args": [
                 "BeebAsm.exe -v -i vgc_demo.asm -do vgc_demo.ssd -boot Main"
+            ]
+        },
+        {
+            "taskName": "vgc_bass_demo.ssd",
+            "problemMatcher": {
+                "owner": "6502",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceRoot}"
+                ],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "severity": 3,
+                    "message": 4
+                }
+            },
+            "args": [
+                "BeebAsm.exe -v -i vgc_bass_demo.asm -do vgc_bass_demo.ssd -boot Main"
             ],
             "isBuildCommand": true
+        },
+        {
+            "taskName": "testbed.ssd",
+            "problemMatcher": {
+                "owner": "6502",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceRoot}"
+                ],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "severity": 3,
+                    "message": 4
+                }
+            },
+            "args": [
+                "BeebAsm.exe -v -i testbed.asm -do testbed.ssd -boot Main"
+            ]
         }
     ]
 }

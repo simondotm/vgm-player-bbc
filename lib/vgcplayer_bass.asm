@@ -1,6 +1,7 @@
 ;******************************************************************
 ; 6502 BBC Micro Compressed VGM (VGC) Music Player
 ; By Simon Morris
+; https://github.com/simondotm/vgm-player-bbc
 ; https://github.com/simondotm/vgm-packer
 ;******************************************************************
 
