@@ -13,8 +13,8 @@ IF MASTER
 	CPU 1
 ENDIF
 DEBUG=0
-RASTERS=1
-NO_IRQ=0	
+RASTERS=0
+NO_IRQ=1	
 .vgm_start
 
 ;--------------------------------------------------
@@ -768,10 +768,15 @@ ENDIF
     rts
 }
 
+; TODO: Call this from demo framework! Or maybe just don't call it at all?
 .irq_init
 {
 	php
 	sei
+
+; AJG_VGMBASS_HACKING .... VGC Bass player no longer sets up its own IRQ handler. Instead assume that
+; demo framework will call 'irq' as necessary.
+if 0
         lda $0204
         sta oldirq+1
         lda $0205
@@ -788,9 +793,11 @@ ENDIF
         sta $fe6b
         sta $fe4b
 	lda #1
-	sta $fe64
+	    sta $fe64
         sta $fe65
 	;lda $fe64 ; clear t1
+endif ; AJG_VGMBASS_HACKING END
+
 	lda $fe68 ; clear ut2
 	lda $fe48 ; clear st2
 	plp
