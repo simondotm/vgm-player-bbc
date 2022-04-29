@@ -13,7 +13,7 @@ IF MASTER
 	CPU 1
 ENDIF
 DEBUG=0
-RASTERS=1
+RASTERS=0
 NO_IRQ=0	
 .vgm_start
 
@@ -65,7 +65,7 @@ ENDIF
     ; stash the data source addr for looping
     stx vgm_source+0
     sty vgm_source+1
-    ; Prepare the data for streaming (passed in X/Y)
+; Prepare the data for streaming (passed in X/Y)
     jmp vgm_stream_mount
 }
 
@@ -186,7 +186,7 @@ ENDIF
     sei
     ldx #255
     stx &fe43
-    sta &fe41
+    sta &fe4f
 IF MASTER
     stz &fe40
 ELSE
@@ -221,16 +221,11 @@ ENDIF
 ; LZ4_FORMAT is a legacy define. May get reactivated if we ever do the full lz4 support
 LZ4_FORMAT = FALSE
 
-; HUFFMAN_INLINE is an experimental optimization that inlines huffman/lz fetch_byte routines.
-; Not sure its worth it for the huffman code path since it's inherently slower
-;  and not likely to be much of a benefit.
-HUFFMAN_INLINE = FALSE 
-
 ;-------------------------------------------
 ; local vgm workspace
 ;-------------------------------------------
 
-VGM_STREAM_CONTEXT_SIZE = 10 ; number of bytes total workspace for a stream
+VGM_STREAM_CONTEXT_SIZE = 8 ; number of bytes total workspace for a stream
 VGM_STREAMS = 8
 
 ;ALIGN 16 ; doesnt have to be aligned, just for debugging ease
@@ -334,53 +329,6 @@ VGM_STREAMS = 8
     inc zp_block_data+1
 .no_block_hi
 
-IF ENABLE_HUFFMAN
-    ; first block contains the bitlength and symbol tables
-    bit vgm_flags
-    bpl skip_hufftable
-
-    ; stash table sizes for later
-IF FALSE
-    ; we dont need the symbol table size for anything.
-    ; left here for future possibility of GD3 tags
-    ldy #8
-    lda (zp_block_data),Y   ; symbol table size
-    sta zp_symbol_table_size    
-    iny
-ELSE
-    ldy #9
-ENDIF
-    lda (zp_block_data),Y   ; bitlength table size
-    sta stashLengthTableSize+1 ; **SELF MODIFYING**
-    ; compensate for the first byte (range is 0-nbits inclusive), value always < 254
-    inc stashLengthTableSize+1 ; **SELF-MODIFYING**
-
-    ; store the address of the bitlengths table directly in the huff_fetch_byte routine
-    lda zp_block_data + 0
-    clc
-    adc #4+4+1        ; skip lz blocksize, huff block size and symbol count byte
-    sta LOAD_LENGTH_TABLE + 1   ; ** SELF MODIFICATION ***
-    lda zp_block_data + 1
-    adc #0
-    sta LOAD_LENGTH_TABLE + 2   ; ** SELF MODIFICATION ***
-
-    ; store the address of the symbols table directly in the huff_fetch_byte routine
-    lda LOAD_LENGTH_TABLE + 1
-    clc
-.stashLengthTableSize
-    adc #0 ; length table size **SELF MODIFIED - see above **
-    sta LOAD_SYMBOL_TABLE + 1   ; ** SELF MODIFICATION ***
-    lda LOAD_LENGTH_TABLE + 2
-    adc #0
-    sta LOAD_SYMBOL_TABLE + 2   ; ** SELF MODIFICATION ***
-
-    ; skip to next block
-    jsr vgm_next_block
-
-.skip_hufftable
-ENDIF ; ENABLE_HUFFMAN
-
-
     ; read the block headers (size)
     ldx #0
     ; clear vgm finished flag
@@ -397,6 +345,14 @@ ENDIF ; ENABLE_HUFFMAN
     sta vgm_streams + VGM_STREAMS*1, x  ; zp_stream_src HI
 
     ; init the rest
+IF MASTER
+    stz vgm_streams + VGM_STREAMS*2, x  ; literal cnt 
+    stz vgm_streams + VGM_STREAMS*3, x  ; literal cnt 
+    stz vgm_streams + VGM_STREAMS*4, x  ; match cnt 
+    stz vgm_streams + VGM_STREAMS*5, x  ; match cnt 
+    stz vgm_streams + VGM_STREAMS*6, x  ; window src ptr 
+    stz vgm_streams + VGM_STREAMS*7, x  ; window dst ptr 
+ELSE
     lda #0
     sta vgm_streams + VGM_STREAMS*2, x  ; literal cnt 
     sta vgm_streams + VGM_STREAMS*3, x  ; literal cnt 
@@ -404,8 +360,7 @@ ENDIF ; ENABLE_HUFFMAN
     sta vgm_streams + VGM_STREAMS*5, x  ; match cnt 
     sta vgm_streams + VGM_STREAMS*6, x  ; window src ptr 
     sta vgm_streams + VGM_STREAMS*7, x  ; window dst ptr 
-    sta vgm_streams + VGM_STREAMS*8, x  ; huff bitbuffer
-    sta vgm_streams + VGM_STREAMS*9, x  ; huff bitsleft
+ENDIF
 
     ; setup RLE tables
     lda #1
@@ -418,36 +373,6 @@ ENDIF ; ENABLE_HUFFMAN
     inx
     cpx #8
     bne block_loop
-
-IF ENABLE_HUFFMAN
-IF HUFFMAN_INLINE
-    ; setup byte fetch routines to lz_fetch_byte or huff_fetch_byte
-    ; depending if data file is huffman encoded or not
-    ; default compilation is lz_fetch_byte, so this code is not needed if HUFFMAN disabled
-    ldx #lo(lz_fetch_byte)
-    ldy #hi(lz_fetch_byte)
-
-    ; if bit7 of vgm_flags is set, its a huffman stream
-    bit vgm_flags        ; [3 zp, 4 abs] (2)
-    bpl no_huffman  ; [2, +1, +2] (2)
-    
-    ldx #lo(huff_fetch_byte)
-    ldy #hi(huff_fetch_byte)
-.no_huffman
-    stx fetchByte1+1
-    sty fetchByte1+2
-    stx fetchByte2+1
-    sty fetchByte2+2
-    sty fetchByte3+2
-    stx fetchByte3+1
-IF LZ4_FORMAT
-    stx fetchByte4+1
-    sty fetchByte4+2
-ENDIF
-    stx fetchByte5+1
-    sty fetchByte5+2
-ENDIF ; HUFFMAN_INLINE
-ENDIF ;ENABLE_HUFFMAN    
 
     rts
 }
@@ -493,13 +418,6 @@ ENDIF ;ENABLE_HUFFMAN
     lda vgm_streams + VGM_STREAMS*7, x
     sta lz_window_dst   ; **SELF MODIFY** not ZP
 
-IF ENABLE_HUFFMAN
-    lda vgm_streams + VGM_STREAMS*8, x
-    sta zp_huff_bitbuffer
-    lda vgm_streams + VGM_STREAMS*9, x
-    sta zp_huff_bitsleft
-ENDIF
-
     ; then fetch a decompressed byte
     jsr lz_decode_byte
     sta loadA+1 ; Stash A for later - ** SMOD ** [4](2) faster than pha/pla 
@@ -528,13 +446,6 @@ ENDIF
 
     lda lz_window_dst
     sta vgm_streams + VGM_STREAMS*7, x
-
-IF ENABLE_HUFFMAN
-    lda zp_huff_bitbuffer
-    sta vgm_streams + VGM_STREAMS*8, x
-    lda zp_huff_bitsleft
-    sta vgm_streams + VGM_STREAMS*9, x
-ENDIF
 
 .loadA
     lda #0 ;[2](2) - ***SELF MODIFIED - See above ***
@@ -804,6 +715,7 @@ ELSE
 	rti
 ENDIF
 ENDMACRO
+.vgcplayer_bass_irq
 .irq
 IF RASTERS
 	lda #0
@@ -877,7 +789,7 @@ s2writeval=*+1
 	beq irq_silent
 	ora #$0f
 .irq_silent
-	sta $fe41
+	sta $fe4f
 IF MASTER
 	stz $fe40
 ELSE
@@ -952,7 +864,7 @@ u2writeval=*+1
 	beq irq_silent
 	ora #$0f
 .irq_silent
-	sta $fe41
+	sta $fe4f
 IF MASTER
 	stz $fe40
 ELSE
@@ -992,7 +904,7 @@ u1writeval=*+1
 	beq irq_silent
 	ora #$0f
 .irq_silent
-	sta $fe41
+	sta $fe4f
 IF MASTER
 	stz $fe40
 ELSE
@@ -1081,7 +993,9 @@ lz_window_dst = lz_store_buffer + 1 ; window write ptr LO (2 bytes) - index, 3 r
     rts
 
 
-
+; Added code to use inverted increment counters
+; which is faster than decremented counters
+USE_FAST_COUNTER = TRUE
 
 
 ; decode a byte from the currently selected register stream
@@ -1113,13 +1027,41 @@ lz_window_dst = lz_store_buffer + 1 ; window write ptr LO (2 bytes) - index, 3 r
     jsr lz_store_buffer         ; [6] +6 RTS
     sta stashA+1   ; **SELF MODIFICATION**
 
+IF USE_FAST_COUNTER
+    ; using inverted counter
+    inc zp_literal_cnt+0    ; [5]
+    bne done                ; hot path [2,+1,+2] / 8
+    inc zp_literal_cnt+1    ; slow path [5]
+    .done
+    bne end_literal         ; hot path [2,+1,+2] / 10
+                            ; slow path [14]
+                            ; zero path [14]
+ELSE
+
+   ; ASSUMPTION IS THAT zp_literal_count will be NON-ZERO here. It was already checked above.
+
     ; for all literals
-    dec zp_literal_cnt+0        ; [5 zp][6 abs]
-    bne end_literal             ; [2, +1, +2]
-    lda zp_literal_cnt+1        ; [3 zp][4 abs]
-    beq begin_matches           ; [2, +1, +2]
-    dec zp_literal_cnt+1        ; [5 zp][6 abs]
-    bne end_literal
+    lda zp_literal_cnt+0    ; [3]
+    sec                     ; [2]
+    sbc #1                  ; [2]
+    sta zp_literal_cnt+0    ; [3]
+    lda zp_literal_cnt+1    ; [3]
+    sbc #0                  ; [2]
+    sta zp_literal_cnt+1    ; [3]
+    bne end_literal         ; hot path [2,+1,+2] / 20
+    lda zp_literal_cnt+0    ; [3]
+    bne end_literal         ; slow path [2, +1, +2] / 25
+    beq begin_matches       ; end path [2, +1, +2] / 27
+
+; old bugged 16-bit decrement
+;    dec zp_literal_cnt+0        ; [5 zp][6 abs]
+;    bne end_literal             ; [2, +1, +2]
+;    lda zp_literal_cnt+1        ; [3 zp][4 abs]
+;    beq begin_matches           ; [2, +1, +2]
+;    dec zp_literal_cnt+1        ; [5 zp][6 abs]
+;    bne end_literal
+
+ENDIF
 
 .begin_matches
 
@@ -1205,13 +1147,16 @@ ENDIF
     jsr lz_fetch_byte     
 
     tax
-    ldy #0
 
     ; unpack match length from token (bottom 4 bits)
     and #&0f
     sta zp_match_cnt+0
+IF MASTER
+    stz zp_match_cnt+1
+ELSE
+    ldy #0
     sty zp_match_cnt+1
-
+ENDIF
     ; unpack literal length from token (top 4 bits)
     txa
     lsr a
@@ -1226,20 +1171,27 @@ ENDIF
 
     ; if no literals, begin the match sequence
     ; and fetch one match byte
+    ; literal count can be 2 bytes, check both for zero
     cmp #0
+    bne has_literals
+    cpx #0
     bne has_literals
 
     jsr begin_matches
     jmp try_match
 
 .has_literals
+
+IF USE_FAST_COUNTER
+    ; negate the literals counter so we can increment it rather than decrement it
+    clc
+    lda zp_literal_cnt+0:eor #&ff:adc #1:sta zp_literal_cnt+0
+    lda zp_literal_cnt+1:eor #&ff:adc #0:sta zp_literal_cnt+1
+ENDIF
+
     ; ok now go back to literal parser so we can return a byte
     ; if no literals, logic will fall through to matches
     jmp try_literal
-
-
-
-
 
 
 ; fetch a byte from the currently selected compressed register data stream
@@ -1247,15 +1199,7 @@ ENDIF
 ; returns byte in A, clobbers Y
 .lz_fetch_byte
 {
-IF ENABLE_HUFFMAN == TRUE
-IF HUFFMAN_INLINE == FALSE
-    ; if bit7 of vgm_flags is set, its a huffman stream
-    bit vgm_flags        ; [3 zp, 4 abs] (2)
-    bmi huff_fetch_byte  ; [2, +1, +2] (2) see below
-ENDIF ; HUFFMAN_INLINE
-ENDIF ; ENABLE_HUFFMAN
-
-    ; otherwise plain LZ4 byte fetch
+    ; otherwise plain LZ4 byte fetch (not huffman)
     ldy #0
     lda (zp_stream_src),y
     inc zp_stream_src+0
@@ -1266,140 +1210,14 @@ ENDIF ; ENABLE_HUFFMAN
 }
 
 
-IF ENABLE_HUFFMAN
-
-;-------------------------------
-; huffman decoder routines
-;-------------------------------
-
-; TODO: Optimize with a peek buffer.
-; 70-90% of codes are 7 bits or less. At 8 bits the % is higher.
-; Peek buffer translates to two lookups and no loops.
-; http://cbloomrants.blogspot.com/2010/08/08-11-10-huffman-arithmetic-equivalence.html
-; 7 bits peek would require 2x 128 byte tables (256 bytes total extra to data stream).
-
-; this routine must be located within branch reach of lz_fetch_byte()
-.huff_fetch_byte
-{
-    ; code = codesize = firstcode = startindex = 0
-    lda #0
-    sta huff_code + 0
-    sta huff_code + 1
-    sta huff_codesize
-    sta huff_firstcode + 0
-    sta huff_firstcode + 1
-    sta huff_startindex
-
-    ; skip over nextbit on first entry - this layout saves a jmp per bitlength
-    jmp decode_loop
-}
-.nextbit
-{
-    ; otherwise, move to the next bit length
-    ; firstcode += numcodes
-    lda huff_firstcode + 0
-    clc
-    adc huff_numcodes
-    sta huff_firstcode + 0
-    lda huff_firstcode + 1
-    adc #0
-    sta huff_firstcode + 1
-
-    ; firstcode <<= 1
-    asl huff_firstcode + 0
-    rol huff_firstcode + 1
-    
-    ; startindex += numcodes
-    lda huff_startindex
-    clc
-    adc huff_numcodes
-    sta huff_startindex
-    
-    ; keep going until we find a symbol
-    ; falls into decode_loop
-}
-.decode_loop
-{
-    ; check if we need to refill bitbuffer
-    lda zp_huff_bitsleft
-    bne got_bits
-    ; fetch 8 more bits
-    ldy #0
-    lda (huff_readptr), y
-    sta zp_huff_bitbuffer
-    lda #8
-    sta zp_huff_bitsleft
-    inc huff_readptr + 0
-    bne got_bits
-    inc huff_readptr + 1
-.got_bits
-
-    ; build code
-
-    ; bitsleft -=1
-    dec zp_huff_bitsleft
-    ; bit = (bitbuffer & 128) >> 7
-    ; buffbuffer <<= 1
-    asl zp_huff_bitbuffer           ; bit7 -> C
-    ; code = (code << 1) | bit
-    rol huff_code + 0       ; C -> bit0, bit7 -> C
-    rol huff_code + 1       ; C -> bit8, bit15 -> C
-    ; codesize += 1
-    inc huff_codesize
-
-    ; how many canonical codes have this many bits?
-    ; numCodes = length_table[codesize]
-    ldy huff_codesize
-}
-.LOAD_LENGTH_TABLE
-{
-    lda &FFFF, Y     ; ** MODIFIED ** See vgm_stream_mount
-    sta huff_numcodes
-
-    ; if input code so far is within the range of the first code with the current number of bits, it's a match
-    ; index = code - firstcode
-    sec
-    lda huff_code + 0
-    sbc huff_firstcode + 0
-    sta huff_index + 0
-    lda huff_code + 1
-    sbc huff_firstcode + 1
-    sta huff_index + 1
-
-    ; if index < numcodes:
-    ; if hi byte is non zero, is definitely > numcodes
-    ; or numcodes >= index
-    bne nextbit 
-
-    ; we found our code, determine which symbol index it has.
-    lda huff_index
-    cmp huff_numcodes
-    bcs nextbit
-    
-    ; code = startindex + index
-    lda huff_startindex
-    clc
-    adc huff_index
-    tay
-}
-.LOAD_SYMBOL_TABLE
-{
-    ; return symbol_table[code]
-    lda &FFFF, Y     ; ** MODIFIED ** See vgm_stream_mount
-    rts
-}
-
-ENDIF ; ENABLE_HUFFMAN
-
-
 .decoder_end
 
 
 
 
-PRINT "    decoder code size is", (decoder_end-decoder_start), "bytes"
-PRINT " vgm player code size is", (vgm_end-vgm_start), "bytes"
-PRINT "total vgm player size is", (decoder_end-decoder_start) + (vgm_end-vgm_start), "bytes"
-PRINT "      vgm buffer size is", (vgm_buffer_end-vgm_buffer_start), "bytes"
+PRINT "    decoder code size is ", (decoder_end-decoder_start), " bytes"
+PRINT " vgm player code size is ", (vgm_end-vgm_start), " bytes"
+PRINT "total vgm player size is ", (decoder_end-decoder_start) + (vgm_end-vgm_start), " bytes"
+PRINT "      vgm buffer size is ", (vgm_buffer_end-vgm_buffer_start), " bytes"
 
 
